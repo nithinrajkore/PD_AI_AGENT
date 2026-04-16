@@ -1,0 +1,102 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Packaging / build artifacts
+*.egg-info/
+*.egg
+dist/
+build/
+wheels/
+pip-wheel-metadata/
+
+# Test / coverage / type-check caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ---------------------------------------------------------------------------
+# uv / Python tooling
+# ---------------------------------------------------------------------------
+.python-version
+
+# ---------------------------------------------------------------------------
+# macOS
+# ---------------------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+
+# ---------------------------------------------------------------------------
+# IDE / editors
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---------------------------------------------------------------------------
+# EDA / OpenLane / OpenROAD run artifacts
+# These can be GB-sized; never commit them.
+# ---------------------------------------------------------------------------
+runs/
+designs/*/runs/
+openlane_run/
+results/
+reports/
+logs/
+tmp/
+
+# Common EDA output files
+*.gds
+*.gds.gz
+*.def
+*.def.gz
+*.lef
+*.lib
+*.v.gz
+*.spef
+*.spef.gz
+*.sdf
+*.sdf.gz
+*.vcd
+*.fsdb
+*.saif
+*.log
+*.rpt
+*.drc
+*.lvs
+
+# ---------------------------------------------------------------------------
+# Secrets / local config
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key

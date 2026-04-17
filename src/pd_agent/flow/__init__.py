@@ -1,3 +1,5 @@
 """Flow orchestration: invoke OpenLane and parse results."""
 
-__all__: list[str] = []
+from pd_agent.flow.models import FlowMetrics, RunResult
+
+__all__ = ["FlowMetrics", "RunResult"]

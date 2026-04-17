@@ -17,7 +17,15 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
 ]
-dependencies = []
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "typer>=0.15",
+    "rich>=13.9",
+]
+
+[project.scripts]
+pd-agent = "pd_agent.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/nithinrajkore/PD_AI_AGENT"
@@ -28,6 +36,7 @@ Issues = "https://github.com/nithinrajkore/PD_AI_AGENT/issues"
 dev = [
     "pytest>=8.3",
     "pytest-cov>=5.0",
+    "pytest-mock>=3.14",
     "ruff>=0.7",
 ]
 
@@ -75,4 +84,7 @@ addopts = [
     "--strict-config",
     "--cov=pd_agent",
     "--cov-report=term-missing",
+]
+markers = [
+    "integration: real-OpenLane end-to-end tests (opt in with `-m integration`)",
 ]

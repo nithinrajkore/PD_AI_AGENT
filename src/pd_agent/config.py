@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = ["PDAgentSettings"]
@@ -41,4 +41,24 @@ class PDAgentSettings(BaseSettings):
     openlane_bin: str = Field(
         default="openlane",
         description="Name of the OpenLane CLI binary to invoke.",
+    )
+
+    anthropic_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ANTHROPIC_API_KEY",
+            "PD_AGENT_ANTHROPIC_API_KEY",
+        ),
+        description=(
+            "Anthropic API key for LLM-powered features. Read from "
+            "ANTHROPIC_API_KEY (preferred) or PD_AGENT_ANTHROPIC_API_KEY."
+        ),
+    )
+
+    anthropic_model: str = Field(
+        default="claude-sonnet-4-5",
+        description=(
+            "Claude model identifier used by default for LLM calls. Override "
+            "with the PD_AGENT_ANTHROPIC_MODEL env var."
+        ),
     )

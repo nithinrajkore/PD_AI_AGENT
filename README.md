@@ -65,10 +65,25 @@ Runtime settings are read from environment variables prefixed
 |---|---|---|
 | `PD_AGENT_OPENLANE2_REPO` | `~/Documents/Projects/openlane2` | Path to the local openlane2 clone used for `nix-shell` invocation |
 | `PD_AGENT_OPENLANE_BIN` | `openlane` | Name of the OpenLane CLI binary |
+| `ANTHROPIC_API_KEY` *(or `PD_AGENT_ANTHROPIC_API_KEY`)* | *(unset)* | Anthropic API key for LLM-powered features. The unprefixed name takes precedence. |
+| `PD_AGENT_ANTHROPIC_MODEL` | `claude-sonnet-4-5` | Claude model used for LLM calls |
 | `PD_AGENT_RUN_INTEGRATION` | *(unset)* | Set to `1` to opt into real-OpenLane integration tests |
 
 CLI flags (`--openlane-repo`, `--config`, `--design`, `--timeout`) override
 env-var values per invocation.
+
+### Local `.env` setup
+
+For features that need an API key (e.g. `pd-agent explain`), copy the
+template and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set `ANTHROPIC_API_KEY` — get a key from
+<https://console.anthropic.com/> after adding a small amount of credit
+under Billing. The `.env` file is git-ignored; never commit it.
 
 ## Repository layout
 

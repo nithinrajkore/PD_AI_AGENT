@@ -22,6 +22,7 @@ dependencies = [
     "pydantic-settings>=2.5",
     "typer>=0.15",
     "rich>=13.9",
+    "anthropic>=0.96.0",
 ]
 
 [project.scripts]

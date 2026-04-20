@@ -4,14 +4,14 @@ AI agent for open-source semiconductor physical design (PD) flow orchestration.
 
 ## Status
 
-**v0.1.0 in progress** — minimal OpenLane 2 runner is usable end-to-end on
-the vendored SPM design. LLM wrapping, RAG, observability, and multi-agent
-coordination come in later releases.
+**v0.2.0 released** — `pd-agent explain` uses Anthropic Claude to describe
+OpenLane signoff metrics in plain English. RAG, observability, and
+multi-agent coordination come in later releases.
 
 ## Roadmap
 
 - [x] v0.1.0 — Repo bootstrap, Python skeleton, OpenLane 2 runner, CLI, SPM integration test
-- [ ] v0.2.0 — LLM-driven agent wrapping the runner
+- [x] v0.2.0 — LLM-driven `pd-agent explain` with Anthropic Claude
 - [ ] v0.3.0 — RAG over PD documentation
 - [ ] v0.4.0 — Observability (timing slack, congestion, runtime metrics over time)
 - [ ] v0.5.0 — Multi-agent (timing / placement / routing / DRC / power)

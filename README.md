@@ -40,6 +40,9 @@ uv run pd-agent run --design spm
 
 # Inspect metrics from any run directory (or a metrics.json)
 uv run pd-agent metrics designs/spm/runs/RUN_<timestamp>/
+
+# Get a plain-English explanation of those metrics (needs ANTHROPIC_API_KEY)
+uv run pd-agent explain designs/spm/runs/RUN_<timestamp>/
 ```
 
 ## Development
@@ -89,11 +92,15 @@ under Billing. The `.env` file is git-ignored; never commit it.
 
 ```
 src/pd_agent/
-  cli.py           # Typer CLI: run / metrics / info
+  cli.py           # Typer CLI: run / metrics / explain / info
   config.py        # Pydantic-settings
+  explain.py       # Prompt construction + explain_metrics()
   flow/
     runner.py      # OpenLaneRunner — subprocess + nix-shell auto-detection
     models.py      # FlowMetrics, RunResult
+  llm/
+    provider.py    # LLMProvider protocol, LLMResponse model
+    anthropic.py   # Anthropic Claude implementation
 designs/
   spm/             # Vendored 32-bit serial/parallel multiplier (Apache-2.0)
 tests/             # Unit tests (fast) + opt-in integration test

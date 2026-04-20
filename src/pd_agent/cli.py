@@ -9,6 +9,9 @@ Subcommands
 ``pd-agent metrics``
     Print parsed metrics from an existing run directory or ``metrics.json``.
 
+``pd-agent explain``
+    Use an LLM to describe the metrics in plain English.
+
 ``pd-agent info``
     Show the resolved configuration and detected invocation mode.
 """
@@ -25,6 +28,7 @@ from rich.table import Table
 
 from pd_agent import __version__
 from pd_agent.config import PDAgentSettings
+from pd_agent.explain import explain_metrics
 from pd_agent.flow import (
     FlowMetrics,
     OpenLaneRunner,
@@ -151,6 +155,24 @@ def _print_run_summary(result: RunResult) -> None:
         console.print(Panel(result.stderr_tail, title="stderr (tail)", border_style="red"))
 
 
+def _load_metrics(path: Path) -> FlowMetrics:
+    """Load :class:`FlowMetrics` from a ``metrics.json`` file or a run directory.
+
+    Exits with code 1 via ``typer.Exit`` if no metrics can be discovered at
+    ``path``.
+    """
+    metrics: FlowMetrics | None = None
+    if path.is_file() and path.suffix.lower() == ".json":
+        metrics = FlowMetrics.from_json_file(path)
+    elif path.is_dir():
+        metrics = RunResult.from_run_dir(path).metrics
+
+    if metrics is None:
+        err_console.print(f"[bold red]Error:[/bold red] no metrics.json found at or below {path}")
+        raise typer.Exit(code=1)
+    return metrics
+
+
 @app.command("info")
 def cmd_info(
     openlane_repo: Annotated[
@@ -244,14 +266,48 @@ def cmd_metrics(
     ],
 ) -> None:
     """Print parsed metrics from an existing run."""
-    metrics: FlowMetrics | None = None
-    if path.is_file() and path.suffix.lower() == ".json":
-        metrics = FlowMetrics.from_json_file(path)
-    elif path.is_dir():
-        metrics = RunResult.from_run_dir(path).metrics
+    _print_metrics(_load_metrics(path))
 
-    if metrics is None:
-        err_console.print(f"[bold red]Error:[/bold red] no metrics.json found at or below {path}")
-        raise typer.Exit(code=1)
 
-    _print_metrics(metrics)
+@app.command("explain")
+def cmd_explain(
+    path: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to a run directory OR a metrics.json file.",
+        ),
+    ],
+    max_tokens: Annotated[
+        int,
+        typer.Option(
+            "--max-tokens",
+            help="Maximum number of tokens the LLM may produce.",
+        ),
+    ] = 1024,
+    temperature: Annotated[
+        float,
+        typer.Option(
+            "--temperature",
+            help="LLM sampling temperature (0.0 = deterministic).",
+        ),
+    ] = 0.2,
+) -> None:
+    """Use an LLM to explain flow metrics in plain English.
+
+    Requires ``ANTHROPIC_API_KEY`` to be set in the environment or in a
+    ``.env`` file. Reads the same ``metrics.json`` / run-directory input as
+    ``pd-agent metrics``.
+    """
+    metrics = _load_metrics(path)
+    try:
+        response = explain_metrics(metrics, max_tokens=max_tokens, temperature=temperature)
+    except ValueError as exc:
+        err_console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=2) from exc
+
+    console.print(Panel(response.text, title="Explanation", border_style="cyan"))
+    console.print(
+        f"[dim]model: {response.model}  |  "
+        f"tokens: {response.input_tokens} in / "
+        f"{response.output_tokens} out ({response.total_tokens} total)[/dim]"
+    )

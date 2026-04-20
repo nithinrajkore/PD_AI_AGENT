@@ -9,25 +9,30 @@
 
 ---
 
-## Current state (as of 2026-04-17)
+## Current state (as of 2026-04-20)
 
-- **Latest release**: v0.1.0 (tag `v0.1.0`, commit `b031df3`).
-- **Active branch**: `dev` (integration branch for v0.2.0 work).
-- **What works today**: `pd-agent run --design spm` runs the full OpenLane 2
-  flow on the vendored SPM design and returns parsed signoff metrics in
-  ~40 seconds. Unit tests (67 passing, 96% coverage) run in under one
-  second; a real-OpenLane end-to-end integration test exists as an
-  opt-in extra.
-- **What doesn't work yet**: any actual "AI" (LLM reasoning, RAG, agents).
-  v0.1.0 is deliberately plumbing-only. Intelligence arrives in v0.2.0.
+- **Latest release**: v0.2.0.
+- **Active branch**: `dev` (integration branch for v0.3.0 work).
+- **What works today**: everything from v0.1.0 (OpenLane 2 flow on SPM)
+  **plus** `pd-agent explain <path>` — hand it a `metrics.json` or a
+  run directory, and Anthropic Claude returns a plain-English summary
+  of timing, violations, area, and power. Unit tests (105 passing, 97%
+  coverage) run in under two seconds; two opt-in integration tests
+  exist (real-OpenLane, real-Anthropic) that the default suite skips.
+  Continuous integration runs lint + format + test on every PR via
+  GitHub Actions.
+- **What doesn't work yet**: RAG (retrieval-augmented generation over
+  PD docs), tool-use (letting the LLM actually drive `OpenLaneRunner`),
+  observability (run-to-run metric tracking), and multi-agent
+  coordination. Those arrive in v0.3.0 and later.
 
 ## Roadmap
 
 | Version | Theme | Status |
 |---|---|---|
 | v0.1.0 | Repo bootstrap, Python skeleton, OpenLane 2 runner, CLI, SPM integration | **Released 2026-04-17** |
-| v0.2.0 | LLM-driven agent wrapping the runner | Next |
-| v0.3.0 | RAG over PD documentation | Planned |
+| v0.2.0 | LLM-driven `pd-agent explain` + CI + Anthropic provider abstraction | **Released 2026-04-20** |
+| v0.3.0 | RAG over PD documentation, tool-use for running flows | Next |
 | v0.4.0 | Observability — metric tracking across runs | Planned |
 | v0.5.0 | Multi-agent coordination (timing / placement / routing / DRC / power) | Planned |
 
@@ -432,28 +437,446 @@ Release closeout in three ordered steps:
 
 ---
 
-# Phase 2 — LLM-driven agent (v0.2.0) — NOT YET STARTED
+# Phase 2 — LLM-driven explain (v0.2.0)
 
-*This section is a placeholder. It will be filled in as Phase 2 work
-lands. Expected scope:*
+- **Released**: 2026-04-20
+- **Tag**: `v0.2.0` (annotated)
+- **GitHub Release**: to be populated at release time
+- **Pull requests merged**: #6, #7, #8, #9, #10, #11
+- **Net change to main**: ~+1000 lines across ~15 files
 
-- Accept natural-language goals like *"Run SPM and explain any
-  signoff failures"*
-- Use structured tool-calling (OpenAI function-calling or Anthropic
-  tool-use) to let the LLM invoke `OpenLaneRunner` as a tool
-- Produce human-readable summaries of `FlowMetrics` results
-- Handle failure cases intelligently (explain *which* check failed and
-  by how much)
+## Phase 2 at a glance
 
-*Updates to this journal at the end of Phase 2 will add:*
+Phase 2 is the first *actually AI-powered* release. You can now point
+`pd-agent` at any OpenLane run and get a plain-English explanation
+from Anthropic Claude:
 
-- v0.2.0 release info (tag, commit, PR numbers)
-- LLM provider decision and rationale
-- Agent framework decision and rationale
-- New modules and their responsibilities
-- Test coverage changes
-- Notable decisions with rationale
-- Things deferred to Phase 3
+```
+$ pd-agent explain designs/spm/runs/RUN_2026.04.20_00.01.23/
+╭──────────────────────── Explanation ───────────────────────╮
+│ This design has passed signoff cleanly with no violations. │
+│ Setup slack is 6.1 ns (comfortably faster than the target  │
+│ frequency), hold slack is 0.26 ns (adequate margin), and   │
+│ both WNS and TNS are zero...                               │
+╰────────────────────────────────────────────────────────────╯
+model: claude-sonnet-4-5-20250929  |  tokens: 419 in / 207 out
+```
+
+The deliberate design principle of Phase 2 was **"wrap the LLM behind
+a thin, swappable boundary"**. Every call to Claude goes through a
+`LLMProvider` protocol, so when v0.3.0 wants to add Ollama or OpenAI,
+nothing above `pd_agent.llm.*` has to change.
+
+Three structural additions underpin the user-visible `explain` command:
+
+1. **CI/CD** (#6) — GitHub Actions runs lint + format + test on every
+   PR, before we start iterating on AI features
+2. **Config + secrets** (#7) — Anthropic SDK dependency, `.env`
+   loading via `pydantic-settings`, and a `SecretStr`-wrapped API key
+3. **Provider abstraction** (#8) — `LLMProvider` protocol, `LLMResponse`
+   model, and a concrete `AnthropicProvider`
+
+Then the user-facing work:
+
+4. **`pd-agent explain`** (#9) — prompt construction, CLI wiring, Rich
+   rendering of the response
+5. **Live integration test** (#10) — an opt-in end-to-end test that
+   actually calls Claude to validate the pipeline works against a
+   real API, not just mocks
+
+## Architecture at the end of Phase 2
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ You, at a terminal                                                  │
+│    $ pd-agent explain designs/spm/runs/RUN_.../                     │
+└─────────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ src/pd_agent/cli.py (Typer)                                         │
+│   • run / metrics / explain / info subcommands                      │
+│   • _load_metrics() shared by metrics and explain                   │
+└─────────────────────────────────────────────────────────────────────┘
+                             │
+              ┌──────────────┴──────────────┐
+              ▼                             ▼
+┌──────────────────────────┐    ┌───────────────────────────────────┐
+│ flow/ (Phase 1)          │    │ src/pd_agent/explain.py (Phase 2) │
+│   • FlowMetrics          │    │   • SYSTEM_PROMPT                 │
+│   • OpenLaneRunner       │    │   • build_user_prompt(metrics)    │
+│                          │    │   • explain_metrics(..., provider)│
+└──────────────────────────┘    └───────────────────────────────────┘
+                                             │
+                                             ▼
+                           ┌──────────────────────────────────────────┐
+                           │ src/pd_agent/llm/                        │
+                           │   • provider.py: LLMProvider protocol,   │
+                           │                   LLMResponse model      │
+                           │   • anthropic.py: AnthropicProvider,     │
+                           │                   make_default_provider  │
+                           └──────────────────────────────────────────┘
+                                             │  anthropic SDK
+                                             ▼
+                           ┌──────────────────────────────────────────┐
+                           │ Anthropic Claude API (api.anthropic.com) │
+                           │   • messages.create, model=claude-sonnet │
+                           └──────────────────────────────────────────┘
+```
+
+New files this phase:
+
+- `src/pd_agent/explain.py` — prompt construction and `explain_metrics()`
+- `src/pd_agent/llm/__init__.py` — package facade
+- `src/pd_agent/llm/provider.py` — `LLMProvider` protocol, `LLMResponse`
+- `src/pd_agent/llm/anthropic.py` — Claude implementation
+- `tests/test_explain.py` — 10 mocked unit tests
+- `tests/test_llm.py` — 15 mocked unit tests (LLMResponse + provider)
+- `tests/test_config.py` — 7 settings tests
+- `tests/test_explain_live.py` — 1 opt-in real-Anthropic test
+- `.github/workflows/ci.yml` — GitHub Actions CI
+- `.env.example` — template for local `ANTHROPIC_API_KEY`
+
+## Phase 2A-0 — GitHub Actions CI (PR #6)
+
+**Shipped first, on purpose.** Before adding any LLM code, we turned
+on automated checks so every subsequent PR had a safety net. The
+workflow lives at `.github/workflows/ci.yml`.
+
+What each step does, top to bottom:
+
+- **`on: push / pull_request`** — trigger on pushes to `main` or `dev`,
+  and on every PR targeting them. That covers the two places changes
+  actually land.
+- **`concurrency` with `cancel-in-progress: true`** — if you push
+  twice in a row to the same branch, the older CI run gets cancelled.
+  Saves minutes and surfaces only the latest result.
+- **`runs-on: ubuntu-latest`, `timeout-minutes: 10`** — GitHub's free
+  Linux runner, with a safety net timeout so a stuck job can't burn
+  forever.
+- **`actions/checkout@v4`** — standard "clone this repo" action.
+- **`astral-sh/setup-uv@v4`** — installs `uv` and the pinned Python
+  version (3.12), with `enable-cache: true` so subsequent runs reuse
+  downloaded packages.
+- **`uv sync --dev`** — installs runtime + dev dependencies from
+  `uv.lock`. Reproducible to the exact same versions the author used.
+- **`ruff check .`** — lint failures fail the build.
+- **`ruff format --check .`** — format drift fails the build (doesn't
+  auto-format, just reports).
+- **`pytest -m "not integration"`** — unit tests only. The
+  `integration` marker is specifically excluded here so CI never
+  accidentally tries to run OpenLane or call Anthropic.
+
+First CI run was the PR *that added CI* — a nice meta-test that
+verified the workflow against its own diff before merging.
+
+## Phase 2A-1 — Anthropic SDK + API key config (PR #7)
+
+Two additions:
+
+1. `uv add anthropic` bumps `pyproject.toml` to depend on the official
+   Anthropic Python SDK (`anthropic>=0.96.0`).
+2. `src/pd_agent/config.py` gains two new fields on `PDAgentSettings`:
+
+```python
+anthropic_api_key: SecretStr | None = Field(
+    default=None,
+    validation_alias=AliasChoices(
+        "ANTHROPIC_API_KEY",             # industry-standard name
+        "PD_AGENT_ANTHROPIC_API_KEY",    # project-prefixed fallback
+    ),
+)
+anthropic_model: str = Field(default="claude-sonnet-4-5")
+```
+
+The two things worth understanding here:
+
+- **`SecretStr`** — a Pydantic type that stores the value but
+  `str(settings.anthropic_api_key)` returns `'**********'`. So if you
+  ever accidentally log the settings object or dump it to the console,
+  the key is automatically redacted. You call `.get_secret_value()`
+  when you actually need the raw string (only done in one place:
+  constructing the Anthropic client).
+- **`AliasChoices`** — lets one Pydantic field read from multiple env
+  var names, in priority order. `ANTHROPIC_API_KEY` is the standard
+  name every SDK and IDE recognises; `PD_AGENT_ANTHROPIC_API_KEY` is
+  the project-prefixed fallback for contributors who want per-project
+  isolation. Both work; the unprefixed one wins if both are set.
+
+Also in this PR:
+
+- **`.env.example`** — a committed template showing contributors what
+  env vars they can set. The real `.env` is git-ignored via
+  `.gitignore` line 97.
+- **`tests/test_config.py`** — 7 tests covering: defaults, env-var
+  loading (both names), `.env` loading, `AliasChoices` precedence,
+  `SecretStr` redaction, prefixed-name resolution.
+
+## Phase 2A-2 — LLM provider abstraction (PR #8)
+
+The most architecturally important piece of Phase 2. Instead of
+calling Anthropic directly from `explain.py`, we define a
+vendor-agnostic interface first.
+
+**`src/pd_agent/llm/provider.py`** defines two things:
+
+```python
+class LLMResponse(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    text: str
+    model: str
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    stop_reason: str = ""
+    @property
+    def total_tokens(self) -> int:
+        return self.input_tokens + self.output_tokens
+
+@runtime_checkable
+class LLMProvider(Protocol):
+    @property
+    def model(self) -> str: ...
+    def generate(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.2,
+    ) -> LLMResponse: ...
+```
+
+Why a `Protocol` rather than an abstract base class?
+
+- **Structural typing**. Any class with a matching `model` property
+  and `generate()` method satisfies `LLMProvider` automatically. No
+  subclassing, no registration, no boilerplate.
+- Consumers (`explain.py`) just type-hint `provider: LLMProvider` and
+  the type checker enforces the contract. Tests can pass a plain
+  `MagicMock` with the right attributes and it's accepted.
+- `@runtime_checkable` also lets you do `isinstance(obj, LLMProvider)`
+  at runtime if you ever need to defensively check.
+
+`LLMResponse` is `frozen=True` (immutable) because it's a return value
+— mutating it after the call would be nonsense.
+
+**`src/pd_agent/llm/anthropic.py`** is the one concrete implementation:
+
+- `AnthropicProvider.__init__` accepts an `api_key`, `model`, and
+  optionally a pre-built `Anthropic` client (for test injection).
+- `generate()` wraps `client.messages.create(...)`, concatenates
+  text blocks from the response, and returns an `LLMResponse` with
+  token counts filled in from `response.usage`.
+- `make_default_provider()` is a factory that builds a provider from
+  `PDAgentSettings` (reads `ANTHROPIC_API_KEY` from env or `.env`,
+  raises `ValueError` with a helpful message if absent).
+
+**Testing** (15 tests in `tests/test_llm.py`) uses `MagicMock` to
+simulate Anthropic API responses — no real API calls, no API key
+required. Every edge case is covered: multi-block text responses,
+non-text blocks being ignored, `None` stop reasons, negative token
+counts being rejected, factory success and failure paths.
+
+## Phase 2A-3 — `pd-agent explain` (PR #9)
+
+The user-facing feature this whole phase is building up to.
+
+**`src/pd_agent/explain.py`** has two pieces:
+
+1. **`SYSTEM_PROMPT`** — the persona-setting instructions Claude
+   receives before every call. Tells Claude it's a PD engineer, to be
+   concise (4–8 sentences), to use engineering units (ns/mW/um²), and
+   critically:
+
+   > *"Do NOT invent values that are not in the input. If a field is
+   > marked 'not measured', do not claim it passed or failed."*
+
+   This guardrail held in live testing — Claude never fabricated
+   numbers, even when the fixture was missing fields.
+
+2. **`build_user_prompt(metrics: FlowMetrics) -> str`** — serializes
+   the curated `FlowMetrics` into a compact labeled block. Critical
+   detail: `None` values render as `"not measured"`, never `"0"`.
+   Confusing zero (a real, passing value) with missing (unknown) would
+   lead Claude to lie about things it wasn't told.
+
+3. **`explain_metrics(metrics, *, provider=None, max_tokens=1024,
+   temperature=0.2)`** — calls the provider. If no provider is
+   injected, builds a default one via `make_default_provider()`. The
+   `provider=None` parameter exists precisely so unit tests can inject
+   a fake.
+
+**`src/pd_agent/cli.py`** adds `cmd_explain` and extracts a shared
+`_load_metrics(path)` helper (used by both `cmd_metrics` and
+`cmd_explain` — removed duplicated "is it a file? a dir? missing?"
+logic). The CLI renders the response in a Rich panel with a dim footer
+showing model + token usage.
+
+**Tests**:
+
+- `tests/test_explain.py` — 10 unit tests covering prompt construction
+  (clean vs dirty metrics, unmeasured fields, timing numbers included,
+  violation counts included), the system prompt content, and
+  `explain_metrics()` behavior with injected providers and the
+  `make_default_provider` path. All mocked; no real API calls.
+- `tests/test_cli.py` gains a `TestExplain` class — 5 tests covering
+  the CLI surface: JSON-file input, run-dir input, `--max-tokens` and
+  `--temperature` forwarding, missing-metrics error (exit 1), and
+  missing-API-key error (exit 2).
+
+## Phase 2A-4 — Live Anthropic integration test (PR #10)
+
+The unit tests prove our code does the right thing. But they all use
+mocks, so they don't catch:
+
+- Anthropic deprecating or renaming `claude-sonnet-4-5`
+- Our prompt drifting into uselessness (still returning text, just
+  nonsense)
+- SDK version incompatibilities between `anthropic>=0.96.0` and the
+  real API
+
+**`tests/test_explain_live.py`** solves this with one single test,
+triple-gated so it never runs by accident:
+
+1. `@pytest.mark.integration` — the default `uv run pytest` skips
+   everything with this marker.
+2. Module-level `pytest.mark.skipif` checks for
+   `PD_AGENT_RUN_LIVE_LLM=1`. You must explicitly opt in. Mirrors the
+   existing `PD_AGENT_RUN_INTEGRATION=1` pattern from Phase 1.
+3. A defensive `_require_api_key()` helper skips with a friendly
+   message if `PDAgentSettings` can't resolve an `ANTHROPIC_API_KEY` —
+   friendlier than a 401 from the API.
+
+The test itself calls `explain_metrics(metrics, max_tokens=256,
+temperature=0.0)` against the SPM fixture and asserts:
+
+- Response text is non-empty
+- Model identifier starts with `"claude"`
+- Input and output token counts are both positive
+- Response contains at least one PD-domain signal word
+  (`pass`, `clean`, `signoff`, `timing`, `setup`, `hold`) — a weak
+  prompt-drift guard that catches the case of "Claude returned
+  something vaguely plausible but totally off-topic"
+
+First successful run:
+- Model: `claude-sonnet-4-5-20250929`
+- Cost: **~$0.004** (419 input tokens, 207 output tokens)
+- Latency: ~8s
+- Accuracy: every number in Claude's response matched the prompt exactly,
+  including unit conversion (W → mW) that we didn't explicitly ask for.
+
+CI does **not** run this test. That's a conscious choice: CI should
+be free, fast, and deterministic. Live API tests run locally on demand.
+
+## Phase 2 release — v0.2.0 (PR #11, tag `v0.2.0`)
+
+Release closeout (filled in after each step):
+
+- **Pre-release chore PR** — version bump (`0.1.0` → `0.2.0`), README
+  status update, this journal chapter
+- **Release PR** — `dev` → `main`, squash-merged
+- **Annotated tag `v0.2.0`** pointing at the new `main` head
+- **GitHub Release** with rendered release notes
+
+## Test coverage at the end of Phase 2
+
+- **Unit tests**: 105 passing in ~1.5 seconds
+- **Coverage**: 97% overall
+  - `cli.py` — 95%
+  - `config.py` — 100%
+  - `explain.py` — 100%
+  - `flow/models.py` — 100%
+  - `flow/runner.py` — 98%
+  - `llm/anthropic.py` — 100%
+  - `llm/provider.py` — 100%
+- **Integration tests**: 2 opt-in (real-OpenLane in Phase 1,
+  real-Anthropic in Phase 2), both auto-skipping unless explicitly
+  enabled
+
+## Notable decisions taken during Phase 2 (with rationale)
+
+- **Anthropic Claude over OpenAI / Ollama** — best instruction-following
+  at this cost tier (~$0.005/call), strong tool-use support for the
+  Phase 3 agent work. Ollama was considered for free local inference
+  but the quality gap on small structured prompts was too large.
+- **Raw Anthropic SDK over LangChain / PydanticAI** — for Phase 2A
+  we're doing *one* LLM call at a time. A framework is overkill; raw
+  SDK is a few dozen lines and teaches the underlying mechanics.
+  Revisit in v0.3.0 when we start doing tool-use and multi-turn.
+- **Protocol over ABC for `LLMProvider`** — structural typing, zero
+  boilerplate, works natively with `MagicMock` in tests.
+- **System prompt includes an explicit "do not invent values" clause**
+  — LLMs are extremely prone to plausible hallucination on numeric
+  data. Direct instruction + "not measured" sentinel values together
+  were enough to prevent it in testing.
+- **`temperature=0.2` default, `0.0` for tests** — low temperature
+  for factual reporting; deterministic (0.0) for tests so assertions
+  are stable.
+- **Ship CI *before* the feature work** — "cheap insurance against
+  regressions". Every subsequent PR was validated by the workflow
+  before we even finished merging it.
+- **Live LLM test gated three ways** — marker + env var + missing-key
+  skip. Mirrors the Phase 1 integration-test pattern. No accidental
+  spend.
+- **`SecretStr` for API keys** — Pydantic's built-in redaction for
+  accidental logging / error messages. Zero ergonomic cost.
+
+## Security lesson: the `.env.example` mishap
+
+Partway through Phase 2A-4 (live LLM test), a real secrets-hygiene
+mistake happened — and the tooling caught it before damage. Worth
+recording:
+
+1. User intended to edit `.env` (git-ignored) and paste a real
+   `ANTHROPIC_API_KEY` value.
+2. User actually edited `.env.example` (the committed template).
+3. User then ran `cp .env.example .env`, which copied the already-edited
+   template — so **both** files contained the real key.
+4. `git status` would have shown `.env.example` as modified. Had a
+   `git add .` happened at that point, the key would have been
+   staged for commit.
+
+**What saved us**:
+
+- The key never reached `git add`, so never reached `git commit`,
+  so never reached `origin/main`.
+- The diagnosis (`git show HEAD:.env.example | grep ANTHROPIC`)
+  confirmed the committed version was still the empty template.
+
+**Recovery**:
+
+1. Revoked the exposed key at console.anthropic.com, regenerated a
+   new one.
+2. `git checkout -- .env.example` — threw away the local edit,
+   restored the empty template.
+3. Rewrote `.env` from scratch with just `ANTHROPIC_API_KEY=<new-key>`
+   in standard `dotenv` format (no spaces around `=`).
+4. Verified `git check-ignore -v .env` still showed it git-ignored.
+
+**Lesson**: if a secret ever appears in a file that `git status`
+tracks — even just in your working tree, never committed — rotate
+the key. Rotation is free and takes 30 seconds; certainty is worth
+more than the minor inconvenience.
+
+## Things explicitly deferred from Phase 2
+
+- **RAG over PD documentation** — Phase 3 will embed the OpenROAD /
+  OpenLane docs and let the LLM cite them in explanations
+- **Tool-use** — letting Claude actually invoke `OpenLaneRunner` as
+  a tool, e.g. *"run SPM and explain any failures"*. Requires either
+  Anthropic's tool-use API or a framework like PydanticAI
+- **Multi-turn conversations** — current `pd-agent explain` is single
+  shot. Multi-turn debugging loops come with agent-mode
+- **Prompt evaluation framework** — we decided in Phase 2 planning to
+  defer this; will revisit once we have more than one prompt and need
+  to A/B test them
+- **Streaming responses** — current implementation blocks until the
+  full response arrives. Fine for explanations; worth streaming for
+  longer outputs in v0.3.0+
+- **Metrics-over-time / observability** — still Phase 4
+- **Multi-agent coordination** — still Phase 5
+- **GitHub Actions secret for live LLM test in CI** — revisit in
+  v0.3.0; for now, live tests stay local-only
 
 ---
 
@@ -482,8 +905,9 @@ Longer body optional. No trailing period on the subject line.
 
 ## Testing
 
-- Default `uv run pytest` — unit tests only, < 1 second
-- Integration: `PD_AGENT_RUN_INTEGRATION=1 uv run pytest -m integration`
+- Default `uv run pytest` — unit tests only, < 2 seconds
+- OpenLane integration: `PD_AGENT_RUN_INTEGRATION=1 uv run pytest -m integration tests/test_integration_openlane.py`
+- Live LLM test: `PD_AGENT_RUN_LIVE_LLM=1 uv run pytest -m integration tests/test_explain_live.py -s`
 - Linting: `uv run ruff check .`
 - Formatting: `uv run ruff format .`
 
@@ -493,6 +917,9 @@ Longer body optional. No trailing period on the subject line.
 
 ```
 PD_AI_Agent/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                   # Lint + format + tests on every PR
 ├── designs/
 │   └── spm/                         # Vendored 32-bit SPM (Apache-2.0)
 │       ├── config.yaml
@@ -507,23 +934,33 @@ PD_AI_Agent/
 │   ├── pd_agent_explained.md        # Non-technical "what is this project"
 │   └── setup.md                     # Install guide (Nix + OpenLane)
 ├── src/pd_agent/
-│   ├── __init__.py                  # Public re-exports
+│   ├── __init__.py                  # Public re-exports, __version__
 │   ├── __main__.py                  # `python -m pd_agent` entry
-│   ├── cli.py                       # Typer CLI (run / metrics / info)
+│   ├── cli.py                       # Typer CLI (run / metrics / explain / info)
 │   ├── config.py                    # PDAgentSettings (pydantic-settings)
+│   ├── explain.py                   # Phase 2: SYSTEM_PROMPT + explain_metrics()
 │   ├── py.typed                     # PEP 561 marker
-│   └── flow/
-│       ├── __init__.py              # Re-exports FlowMetrics, RunResult, etc.
-│       ├── models.py                # FlowMetrics + RunResult
-│       └── runner.py                # OpenLaneRunner
+│   ├── flow/
+│   │   ├── __init__.py              # Re-exports FlowMetrics, RunResult, etc.
+│   │   ├── models.py                # FlowMetrics + RunResult
+│   │   └── runner.py                # OpenLaneRunner
+│   └── llm/                         # Phase 2: vendor-agnostic LLM layer
+│       ├── __init__.py              # Re-exports LLMProvider, AnthropicProvider
+│       ├── provider.py              # LLMProvider Protocol + LLMResponse model
+│       └── anthropic.py             # AnthropicProvider + make_default_provider
 ├── tests/
 │   ├── fixtures/
 │   │   └── spm_metrics.json         # Real metrics.json from a prior SPM run
-│   ├── test_cli.py                  # 13 Typer CLI tests (mocked)
-│   ├── test_flow_models.py          # 37 model tests
-│   ├── test_integration_openlane.py # 1 opt-in real-OpenLane test
-│   ├── test_runner.py               # 15 runner tests (mocked)
-│   └── test_smoke.py                # 2 import tests
+│   ├── test_cli.py                  # Typer CLI tests (mocked)
+│   ├── test_config.py               # Phase 2: PDAgentSettings tests
+│   ├── test_explain.py              # Phase 2: explain_metrics tests (mocked)
+│   ├── test_explain_live.py         # Phase 2: opt-in real-Anthropic test
+│   ├── test_flow_models.py          # FlowMetrics + RunResult tests
+│   ├── test_integration_openlane.py # Opt-in real-OpenLane test
+│   ├── test_llm.py                  # Phase 2: LLMProvider + LLMResponse tests
+│   ├── test_runner.py               # OpenLaneRunner tests (mocked)
+│   └── test_smoke.py                # Import + version tests
+├── .env.example                     # Phase 2: template for local env vars
 ├── .gitignore
 ├── .python-version
 ├── LICENSE

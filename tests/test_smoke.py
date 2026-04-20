@@ -9,4 +9,4 @@ def test_package_imports() -> None:
 
 def test_version_is_string() -> None:
     assert isinstance(pd_agent.__version__, str)
-    assert pd_agent.__version__ == "0.1.0"
+    assert pd_agent.__version__ == "0.2.0"

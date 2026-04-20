@@ -62,3 +62,60 @@ class PDAgentSettings(BaseSettings):
             "with the PD_AGENT_ANTHROPIC_MODEL env var."
         ),
     )
+
+    voyage_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "VOYAGE_API_KEY",
+            "PD_AGENT_VOYAGE_API_KEY",
+        ),
+        description=(
+            "Voyage AI API key for embeddings. Read from VOYAGE_API_KEY "
+            "(preferred) or PD_AGENT_VOYAGE_API_KEY."
+        ),
+    )
+
+    voyage_embedding_model: str = Field(
+        default="voyage-3-lite",
+        description=(
+            "Voyage embedding model used for RAG indexing and queries. "
+            "Override with the PD_AGENT_VOYAGE_EMBEDDING_MODEL env var."
+        ),
+    )
+
+    cohere_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "COHERE_API_KEY",
+            "PD_AGENT_COHERE_API_KEY",
+        ),
+        description=(
+            "Cohere API key for re-ranking retrieved chunks. Read from "
+            "COHERE_API_KEY (preferred) or PD_AGENT_COHERE_API_KEY."
+        ),
+    )
+
+    cohere_rerank_model: str = Field(
+        default="rerank-v3.5",
+        description=(
+            "Cohere rerank model used to re-score retrieved chunks. "
+            "Override with the PD_AGENT_COHERE_RERANK_MODEL env var."
+        ),
+    )
+
+    rag_corpus_dir: Path = Field(
+        default=Path("data/corpus"),
+        description=(
+            "Directory containing source documents ingested by the RAG "
+            "pipeline. Paths are resolved relative to the current working "
+            "directory."
+        ),
+    )
+
+    rag_index_dir: Path = Field(
+        default=Path("data/index"),
+        description=(
+            "Directory where the persisted Chroma vector store and BM25 "
+            "index live. Derived data -- safe to delete and rebuild."
+        ),
+    )

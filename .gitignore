@@ -100,3 +100,11 @@ tmp/
 secrets/
 *.pem
 *.key
+
+# ---------------------------------------------------------------------------
+# RAG (phase 3) derived data
+# Persisted vector store + BM25 indexes — large, binary, always re-buildable
+# from `data/corpus/` via `pd-agent index`. Corpus contents are tracked
+# selectively per source in later sub-phases.
+# ---------------------------------------------------------------------------
+data/index/

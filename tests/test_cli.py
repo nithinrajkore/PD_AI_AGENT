@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from pd_agent import __version__
 from pd_agent.cli import app
+from pd_agent.llm import LLMResponse
 
 FIXTURE_METRICS = Path(__file__).parent / "fixtures" / "spm_metrics.json"
 
@@ -146,3 +147,68 @@ class TestRun:
             ],
         )
         assert result.exit_code == 1
+
+
+class TestExplain:
+    def _mock_response(self) -> LLMResponse:
+        return LLMResponse(
+            text="The design passes all signoff checks.",
+            model="claude-sonnet-4-5",
+            input_tokens=120,
+            output_tokens=30,
+            stop_reason="end_turn",
+        )
+
+    def test_explain_from_json_file(self, cli: CliRunner, mocker: MockerFixture) -> None:
+        mock_explain = mocker.patch(
+            "pd_agent.cli.explain_metrics", return_value=self._mock_response()
+        )
+        result = cli.invoke(app, ["explain", str(FIXTURE_METRICS)])
+        assert result.exit_code == 0, result.stdout
+        assert "passes all signoff" in result.stdout
+        assert "claude-sonnet-4-5" in result.stdout
+        mock_explain.assert_called_once()
+
+    def test_explain_from_run_dir(
+        self, cli: CliRunner, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        final = tmp_path / "final"
+        final.mkdir()
+        (final / "metrics.json").write_text(FIXTURE_METRICS.read_text())
+        mocker.patch("pd_agent.cli.explain_metrics", return_value=self._mock_response())
+        result = cli.invoke(app, ["explain", str(tmp_path)])
+        assert result.exit_code == 0, result.stdout
+        assert "passes all signoff" in result.stdout
+
+    def test_explain_forwards_options(self, cli: CliRunner, mocker: MockerFixture) -> None:
+        mock_explain = mocker.patch(
+            "pd_agent.cli.explain_metrics", return_value=self._mock_response()
+        )
+        result = cli.invoke(
+            app,
+            [
+                "explain",
+                str(FIXTURE_METRICS),
+                "--max-tokens",
+                "256",
+                "--temperature",
+                "0.5",
+            ],
+        )
+        assert result.exit_code == 0, result.stdout
+        _, kwargs = mock_explain.call_args
+        assert kwargs["max_tokens"] == 256
+        assert kwargs["temperature"] == 0.5
+
+    def test_explain_missing_metrics_errors(self, cli: CliRunner, tmp_path: Path) -> None:
+        result = cli.invoke(app, ["explain", str(tmp_path)])
+        assert result.exit_code == 1
+
+    def test_explain_handles_missing_api_key(self, cli: CliRunner, mocker: MockerFixture) -> None:
+        mocker.patch(
+            "pd_agent.cli.explain_metrics",
+            side_effect=ValueError("ANTHROPIC_API_KEY is not set"),
+        )
+        result = cli.invoke(app, ["explain", str(FIXTURE_METRICS)])
+        assert result.exit_code == 2
+        assert "ANTHROPIC_API_KEY" in result.output

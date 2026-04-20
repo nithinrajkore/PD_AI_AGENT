@@ -23,6 +23,12 @@ dependencies = [
     "typer>=0.15",
     "rich>=13.9",
     "anthropic>=0.96.0",
+    "voyageai>=0.3.7",
+    "chromadb>=1.5.8",
+    "cohere>=6.1.0",
+    "rank-bm25>=0.2.2",
+    "pymupdf4llm>=1.27.2.2",
+    "trafilatura>=2.0.0",
 ]
 
 [project.scripts]

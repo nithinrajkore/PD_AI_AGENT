@@ -54,6 +54,10 @@ uv run pytest
 # Include the real-OpenLane integration test (~2-3 minutes)
 PD_AGENT_RUN_INTEGRATION=1 uv run pytest -m integration
 
+# Live LLM test — actually calls Anthropic, costs ~$0.005 per run.
+# Needs ANTHROPIC_API_KEY in your env or .env file.
+PD_AGENT_RUN_LIVE_LLM=1 uv run pytest -m integration tests/test_explain_live.py -s
+
 # Lint + format
 uv run ruff check .
 uv run ruff format .
@@ -71,6 +75,7 @@ Runtime settings are read from environment variables prefixed
 | `ANTHROPIC_API_KEY` *(or `PD_AGENT_ANTHROPIC_API_KEY`)* | *(unset)* | Anthropic API key for LLM-powered features. The unprefixed name takes precedence. |
 | `PD_AGENT_ANTHROPIC_MODEL` | `claude-sonnet-4-5` | Claude model used for LLM calls |
 | `PD_AGENT_RUN_INTEGRATION` | *(unset)* | Set to `1` to opt into real-OpenLane integration tests |
+| `PD_AGENT_RUN_LIVE_LLM` | *(unset)* | Set to `1` to opt into real-Anthropic LLM tests (~$0.005/run) |
 
 CLI flags (`--openlane-repo`, `--config`, `--design`, `--timeout`) override
 env-var values per invocation.
